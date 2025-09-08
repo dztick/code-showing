@@ -1,74 +1,141 @@
--- Universal Remote Logger (GUI version for Solara)
--- Akan tampilkan semua FireServer & InvokeServer + argumen di layar
+-- Remote Probe (Solara-friendly GUI)
+-- WARNING: This WILL call FireServer/InvokeServer on remotes. Use alt account.
 
 local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-local pg = LocalPlayer:WaitForChild("PlayerGui")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
 
--- Buat GUI
+local player = Players.LocalPlayer
+local char = player.Character or player.CharacterAdded:Wait()
+local root = char:WaitForChild("HumanoidRootPart")
+local humanoid = char:FindFirstChild("Humanoid")
+
+-- UI
+local pg = player:WaitForChild("PlayerGui")
 local screen = Instance.new("ScreenGui", pg); screen.ResetOnSpawn = false
 local frame = Instance.new("Frame", screen)
-frame.Size = UDim2.new(0,480,0,260)
-frame.Position = UDim2.new(0,10,0,200)
-frame.BackgroundColor3 = Color3.fromRGB(20,20,20)
+frame.Size = UDim2.new(0,620,0,360); frame.Position = UDim2.new(0,10,0,80)
+frame.BackgroundColor3 = Color3.fromRGB(22,22,22)
 frame.BorderSizePixel = 0
 
-local scroll = Instance.new("ScrollingFrame", frame)
-scroll.Size = UDim2.new(1,0,1,0)
-scroll.CanvasSize = UDim2.new(0,0,5,0)
-scroll.BackgroundTransparency = 1
-scroll.ScrollBarThickness = 6
+local title = Instance.new("TextLabel", frame)
+title.Size = UDim2.new(1,0,0,26); title.Position = UDim2.new(0,0,0,0)
+title.BackgroundTransparency = 1
+title.Text = "[RemoteProbe] scanning remotes..."
+title.TextColor3 = Color3.fromRGB(0,255,128)
+title.Font = Enum.Font.Code; title.TextSize = 16
 
-local tb = Instance.new("TextLabel", scroll)
-tb.Size = UDim2.new(1,-10,0,20)
-tb.Position = UDim2.new(0,5,0,0)
-tb.BackgroundTransparency = 1
-tb.TextXAlignment = Enum.TextXAlignment.Left
-tb.TextYAlignment = Enum.TextYAlignment.Top
-tb.TextColor3 = Color3.fromRGB(0,255,0)
-tb.Font = Enum.Font.Code
-tb.TextSize = 14
-tb.Text = "[Logger] Waiting for activity...\n"
+local logScroll = Instance.new("ScrollingFrame", frame)
+logScroll.Size = UDim2.new(1,-10,1,-36); logScroll.Position = UDim2.new(0,5,0,30)
+logScroll.BackgroundTransparency = 1
+logScroll.ScrollBarThickness = 8
 
--- Fungsi untuk nambah teks
-local function addLine(txt)
-    tb.Text = tb.Text .. txt .. "\n"
-    tb.Size = UDim2.new(1,-10,0,tb.TextBounds.Y + 20)
-    scroll.CanvasSize = UDim2.new(0,0,0,tb.TextBounds.Y + 20)
+local logLabel = Instance.new("TextLabel", logScroll)
+logLabel.Size = UDim2.new(1,-10,0,20)
+logLabel.Position = UDim2.new(0,5,0,5)
+logLabel.BackgroundTransparency = 1
+logLabel.TextXAlignment = Enum.TextXAlignment.Left
+logLabel.TextYAlignment = Enum.TextYAlignment.Top
+logLabel.Font = Enum.Font.Code
+logLabel.TextColor3 = Color3.fromRGB(0,255,0)
+logLabel.TextSize = 14
+logLabel.Text = "[RemoteProbe] Starting...\n"
+
+local function addLog(s)
+    logLabel.Text = logLabel.Text .. s .. "\n"
+    -- expand label to fit
+    local y = math.max(20, logLabel.TextBounds.Y + 10)
+    logLabel.Size = UDim2.new(1,-10,0,y)
+    logScroll.CanvasSize = UDim2.new(0,0,y + 20)
 end
 
--- Safe name
-local function safeName(obj)
-    local s
-    pcall(function() s = obj:GetFullName() end)
-    return s or tostring(obj)
+-- gather remotes from ReplicatedStorage and Workspace
+local function gatherRemotes()
+    local out = {}
+    local function scan(parent)
+        for _,v in ipairs(parent:GetDescendants()) do
+            if v:IsA("RemoteEvent") or v:IsA("RemoteFunction") then
+                table.insert(out, v)
+            end
+        end
+    end
+    pcall(function() scan(ReplicatedStorage) end)
+    pcall(function() scan(Workspace) end)
+    return out
 end
 
--- Hook FireServer & InvokeServer
-for _,v in ipairs(getgc(true)) do
-    if typeof(v) == "function" and islclosure(v) then
-        local info = debug.getinfo(v)
-        if info and info.name == "FireServer" then
-            hookfunction(v, function(self, ...)
-                addLine("[FireServer] " .. safeName(self))
-                local args = {...}
-                for i,a in ipairs(args) do
-                    addLine("   Arg"..i.." = "..tostring(a))
-                end
-                return v(self, ...)
-            end)
+-- common arg patterns to test (focused on dash-style calls)
+local argPatterns = {
+    {"Dash"},
+    {"Dash", Vector3.new(0,1,0)},
+    {"Dash", Vector3.new(0,1,0), 0.25},
+    {"Dash", Vector3.new(1,0,0), 0.25},
+    {"Dash", Vector3.new(0,0,0), 1},
+    -- fallback simple patterns (harmless-looking strings/numbers)
+    {"test"},
+    {123},
+    {"M1"},
+}
+
+-- utility to safely call and detect movement
+local function tryCall(remote, isFunction, args)
+    local moved = false
+    local success, ret, err = false, nil, nil
+    -- capture pos and velocity before
+    local prePos = root.Position
+    local preVel = root.Velocity
+    local ok, res = pcall(function()
+        if isFunction then
+            return remote:InvokeServer(table.unpack(args))
+        else
+            remote:FireServer(table.unpack(args))
+            return nil
         end
-        if info and info.name == "InvokeServer" then
-            hookfunction(v, function(self, ...)
-                addLine("[InvokeServer] " .. safeName(self))
-                local args = {...}
-                for i,a in ipairs(args) do
-                    addLine("   Arg"..i.." = "..tostring(a))
-                end
-                return v(self, ...)
-            end)
+    end)
+    success = ok
+    if not ok then err = res end
+    -- wait a short moment to let server affect you
+    wait(0.18)
+    local postPos = root.Position
+    local postVel = root.Velocity
+    local dist = (postPos - prePos).Magnitude
+    if dist > 1 or (postVel - preVel).Magnitude > 1 then
+        moved = true
+    end
+    return success, moved, err, res
+end
+
+-- Run probe (will try multiple args per remote)
+addLog("[RemoteProbe] Collecting remotes...")
+local remotes = gatherRemotes()
+addLog(string.format("[RemoteProbe] Found %d remotes", #remotes))
+addLog("Tip: stand still while probe runs, use alt account to reduce risk.")
+
+for i,remote in ipairs(remotes) do
+    local kind = remote.ClassName
+    addLog(("--- Remote %d/%d: %s (%s)"):format(i, #remotes, remote:GetFullName(), kind))
+    for j,pattern in ipairs(argPatterns) do
+        -- copy pattern to avoid mutation
+        local args = {}
+        for _,v in ipairs(pattern) do table.insert(args, v) end
+        -- if arg is player name token like "PLAYER", replace with your player
+        for k,v in ipairs(args) do
+            if type(v) == "string" and v:lower() == "player_self" then
+                args[k] = player -- replacement example
+            end
         end
+        local isFunction = remote:IsA("RemoteFunction")
+        local ok, moved, err, ret = tryCall(remote, isFunction, args)
+        if ok then
+            addLog(("  [TRY] args #%d OK | moved=%s | ret=%s"):format(j, tostring(moved), tostring(ret)))
+        else
+            addLog(("  [TRY] args #%d ERROR -> %s"):format(j, tostring(err)))
+        end
+        -- small pause to not spam server too fast
+        task.wait(0.12)
     end
 end
 
-addLine("[Logger] Started. Lakukan Dash/M1 untuk lihat remote + argumen.")
+addLog("[RemoteProbe] Done. Look for lines with 'moved=true' — these remotes likely trigger dash/movement.")
+addLog("[RemoteProbe] Copy interesting remote:GetFullName() and paste to me.")
