@@ -1,4 +1,38 @@
-local Remote = game.ReplicatedStorage.Event
-Remote.OnClientEvent:Connect(function(...)
-    print("[Event Remote Fired]:", ...)
-end)
+-- Universal Remote Logger untuk Solara
+-- akan log semua FireServer / InvokeServer
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+local function safeName(obj)
+    return obj:GetFullName()
+end
+
+-- Hook FireServer
+for _,v in ipairs(getgc(true)) do
+    if typeof(v) == "function" and islclosure(v) then
+        local info = debug.getinfo(v)
+        if info and info.name == "FireServer" then
+            hookfunction(v, function(self, ...)
+                print("[FireServer] Remote:", safeName(self))
+                local args = {...}
+                for i,a in ipairs(args) do
+                    print("   Arg", i, "=", a)
+                end
+                return v(self, ...)
+            end)
+        end
+        if info and info.name == "InvokeServer" then
+            hookfunction(v, function(self, ...)
+                print("[InvokeServer] Remote:", safeName(self))
+                local args = {...}
+                for i,a in ipairs(args) do
+                    print("   Arg", i, "=", a)
+                end
+                return v(self, ...)
+            end)
+        end
+    end
+end
+
+print("[Logger] Started. Lakukan dash/M1 untuk lihat argumen di console (F9).")
