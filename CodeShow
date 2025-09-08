@@ -1,47 +1,192 @@
--- [M1 Remote Logger]
--- Jalankan script ini, lalu klik M1 (attack biasa).
--- Akan muncul log di layar.
+-- M1 Remote Probe (Solara-friendly)
+-- Akan mencoba pola umum pada semua RemoteEvent/RemoteFunction
+-- dan mendeteksi apakah target kehilangan health (indikator M1/damage).
+-- Warning: will call FireServer/InvokeServer. Use alt account / private server.
 
 local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-local pg = LocalPlayer:WaitForChild("PlayerGui")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
 
--- GUI
-local screen = Instance.new("ScreenGui", pg); screen.ResetOnSpawn = false
-local frame = Instance.new("Frame", screen)
-frame.Size = UDim2.new(0,520,0,300)
-frame.Position = UDim2.new(0,10,0,80)
-frame.BackgroundColor3 = Color3.fromRGB(25,25,25)
+local me = Players.LocalPlayer
+local pg = me:WaitForChild("PlayerGui")
+local char = me.Character or me.CharacterAdded:Wait()
+local hrp = char:WaitForChild("HumanoidRootPart")
 
-local tb = Instance.new("TextLabel", frame)
-tb.Size = UDim2.new(1,-10,1,-10)
-tb.Position = UDim2.new(0,5,0,5)
-tb.BackgroundTransparency = 1
-tb.TextXAlignment = Enum.TextXAlignment.Left
-tb.TextYAlignment = Enum.TextYAlignment.Top
-tb.Font = Enum.Font.Code
-tb.TextColor3 = Color3.fromRGB(0,255,0)
-tb.TextSize = 14
-tb.Text = "[M1 Logger] Klik kiri untuk serangan...\n"
-
-local function addLog(s)
-    tb.Text = tb.Text .. s .. "\n"
-end
-
--- Hook semua RemoteFunction & RemoteEvent
-for _,r in ipairs(game:GetDescendants()) do
-    if r:IsA("RemoteEvent") or r:IsA("RemoteFunction") then
-        if not r:GetFullName():lower():find("chat") then -- biar ga spam chat
-            r.OnClientEvent:Connect(function(...)
-                addLog("[RemoteEvent] " .. r:GetFullName() .. " | " .. table.concat({...}, ", "))
-            end)
-            if r:IsA("RemoteFunction") then
-                r.OnClientInvoke = function(...)
-                    addLog("[RemoteFunction] " .. r:GetFullName() .. " | " .. table.concat({...}, ", "))
-                end
+-- Pilih target: nearest player selain kamu, atau nearest dummy (Workspace)
+local function findTarget()
+    local best, bestd = nil, math.huge
+    for _,p in pairs(Players:GetPlayers()) do
+        if p ~= me and p.Character and p.Character:FindFirstChild("HumanoidRootPart") and p.Character:FindFirstChild("Humanoid") then
+            local d = (p.Character.HumanoidRootPart.Position - hrp.Position).Magnitude
+            if d < bestd then best, bestd = p, d end
+        end
+    end
+    -- fallback ke dummy di workspace
+    if not best then
+        for _,obj in pairs(Workspace:GetDescendants()) do
+            if obj:IsA("Model") and obj:FindFirstChild("Humanoid") and obj:FindFirstChild("HumanoidRootPart") then
+                local d = (obj.HumanoidRootPart.Position - hrp.Position).Magnitude
+                if d < bestd then best, bestd = obj, d end
             end
         end
     end
+    return best
 end
 
-addLog("[M1 Logger] Aktif. Klik M1, lihat nama remote + argumen yang keluar.")
+-- UI
+local screen = Instance.new("ScreenGui", pg); screen.ResetOnSpawn = false
+local frame = Instance.new("Frame", screen)
+frame.Size = UDim2.new(0,640,0,360); frame.Position = UDim2.new(0,10,0,80); frame.BackgroundColor3 = Color3.fromRGB(18,18,18)
+local title = Instance.new("TextLabel", frame)
+title.Size = UDim2.new(1,0,0,24); title.BackgroundTransparency = 1; title.TextColor3 = Color3.fromRGB(0,255,128)
+title.Font = Enum.Font.Code; title.TextSize = 16
+title.Text = "[M1 Probe] Cari remote M1 / Damage"
+local scroll = Instance.new("ScrollingFrame", frame)
+scroll.Size = UDim2.new(1,-10,1,-34); scroll.Position = UDim2.new(0,5,0,28); scroll.BackgroundTransparency = 1; scroll.ScrollBarThickness = 8
+local logLabel = Instance.new("TextLabel", scroll)
+logLabel.Size = UDim2.new(1,-10,0,20); logLabel.Position = UDim2.new(0,5,0,5)
+logLabel.BackgroundTransparency = 1; logLabel.TextXAlignment = Enum.TextXAlignment.Left; logLabel.TextYAlignment = Enum.TextYAlignment.Top
+logLabel.Font = Enum.Font.Code; logLabel.TextColor3 = Color3.fromRGB(0,255,0); logLabel.TextSize = 14
+logLabel.Text = "[M1 Probe] ready...\n"
+
+local function addLog(s)
+    logLabel.Text = logLabel.Text .. s .. "\n"
+    local y = math.max(20, logLabel.TextBounds.Y + 20)
+    logLabel.Size = UDim2.new(1,-10,0,y)
+    scroll.CanvasSize = UDim2.new(0,0,y + 20)
+end
+
+-- Kumpulkan semua RemoteEvent/RemoteFunction dari ReplicatedStorage & Workspace
+local function gatherRemotes()
+    local out = {}
+    local function scan(parent)
+        for _,v in ipairs(parent:GetDescendants()) do
+            if v:IsA("RemoteEvent") or v:IsA("RemoteFunction") then
+                table.insert(out, v)
+            end
+        end
+    end
+    pcall(function() scan(ReplicatedStorage) end)
+    pcall(function() scan(Workspace) end)
+    return out
+end
+
+-- Pola argumen umum untuk attack/M1 (kita coba beberapa kemungkinan)
+local function buildPatterns(target)
+    local tPatterns = {}
+
+    -- if target is a Player object, maybe send player or character model
+    local tArgTarget = nil
+    if typeof(target) == "Instance" then
+        tArgTarget = target
+        if target:IsA("Player") and target.Character then
+            tArgTarget = target.Character
+        end
+    end
+
+    -- Common tries:
+    table.insert(tPatterns, {"M1"})
+    table.insert(tPatterns, {"M1", tArgTarget})
+    table.insert(tPatterns, {"M1", tArgTarget, 1})
+    table.insert(tPatterns, {"Attack", tArgTarget})
+    table.insert(tPatterns, {"Attack", tArgTarget, "Primary"})
+    table.insert(tPatterns, {"Hit", tArgTarget})
+    table.insert(tPatterns, {"Hit", tArgTarget, 10})
+    table.insert(tPatterns, {"Damage", tArgTarget, 10})
+    table.insert(tPatterns, {"Request", "M1", tArgTarget})
+    table.insert(tPatterns, {tArgTarget})
+    table.insert(tPatterns, {tArgTarget, "M1"})
+    table.insert(tPatterns, {"Click", tArgTarget})
+    table.insert(tPatterns, {"Punch", tArgTarget})
+    table.insert(tPatterns, {"LeftClick", tArgTarget})
+    return tPatterns
+end
+
+-- Coba panggil remote dengan pola, pantau health:
+local function tryPattern(remote, isFunction, pattern, targetHum)
+    local ok, res = pcall(function()
+        if isFunction then
+            return remote:InvokeServer(table.unpack(pattern))
+        else
+            remote:FireServer(table.unpack(pattern))
+            return nil
+        end
+    end)
+    -- tunggu sebentar biar server bereaksi
+    wait(0.25)
+    return ok, res, targetHum and targetHum.Health
+end
+
+-- Probe utama
+local function runProbe()
+    addLog("[M1 Probe] Mulai scan remotes...")
+    local remotes = gatherRemotes()
+    addLog("[M1 Probe] Ditemukan remotes: "..tostring(#remotes))
+    local target = findTarget()
+    if not target then
+        addLog("[M1 Probe] Tidak menemukan target (player/dummy) di dekatmu. Pindah dekat target lalu ulangi.")
+        return
+    end
+    addLog("[M1 Probe] Target terpilih: "..(target.Name or tostring(target)))
+    local targetHum = target:FindFirstChildWhichIsA and target:FindFirstChildWhichIsA("Humanoid") or (target.Character and target.Character:FindFirstChildWhichIsA("Humanoid"))
+    if not targetHum then
+        -- if target is Player, get Humanoid from character
+        if target:IsA("Player") and target.Character then
+            targetHum = target.Character:FindFirstChildWhichIsA("Humanoid")
+        end
+    end
+    local initialHealth = nil
+    if targetHum then initialHealth = targetHum.Health end
+
+    for i,remote in ipairs(remotes) do
+        local isFunction = remote:IsA("RemoteFunction")
+        addLog(("--- [%d/%d] %s (%s)"):format(i,#remotes,remote:GetFullName(), remote.ClassName))
+        local patterns = buildPatterns(target)
+        for pi,pat in ipairs(patterns) do
+            -- copy pattern to avoid mutating original
+            local args = {}
+            for _,v in ipairs(pat) do table.insert(args, v) end
+            -- try call
+            local ok, ret = pcall(function()
+                if isFunction then
+                    return remote:InvokeServer(table.unpack(args))
+                else
+                    remote:FireServer(table.unpack(args))
+                end
+            end)
+            -- wait a bit then check health
+            wait(0.25)
+            local curHealth = nil
+            if targetHum then curHealth = targetHum.Health end
+            local moved = false
+            -- if health decreased then indicate damage
+            if initialHealth and curHealth and curHealth < initialHealth then
+                addLog(("   [PATTERN %d] OK (damage detected). Pattern: %s"):format(pi, tostring(args[1])))
+                moved = true
+                -- update initialHealth for next detection
+                initialHealth = curHealth
+            else
+                if ok then
+                    addLog(("   [PATTERN %d] OK (no damage). Pattern sample: %s"):format(pi, tostring(args[1])))
+                else
+                    addLog(("   [PATTERN %d] ERROR -> %s"):format(pi, tostring(ret)))
+                end
+            end
+            task.wait(0.12)
+        end
+    end
+    addLog("[M1 Probe] Selesai.")
+end
+
+-- Tombol start
+local startBtn = Instance.new("TextButton", frame)
+startBtn.Size = UDim2.new(0,120,0,28); startBtn.Position = UDim2.new(0,5,1,-34)
+startBtn.Text = "Start Probe"
+startBtn.Font = Enum.Font.Code; startBtn.TextSize = 14
+startBtn.BackgroundColor3 = Color3.fromRGB(40,40,40); startBtn.TextColor3 = Color3.fromRGB(0,255,0)
+startBtn.MouseButton1Click:Connect(function()
+    spawn(runProbe)
+end)
+
+addLog("[M1 Probe] Siap. Pastikan berdiri dekat target (player/dummy). Tekan Start Probe.")
