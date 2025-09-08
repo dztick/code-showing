@@ -1,34 +1,4 @@
--- Fallback Remote Lister untuk Solara
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Workspace = game:GetService("Workspace")
-local player = Players.LocalPlayer
-local pg = player:WaitForChild("PlayerGui")
-
-local screen = Instance.new("ScreenGui", pg); screen.ResetOnSpawn = false
-local frame = Instance.new("Frame", screen)
-frame.Size = UDim2.new(0,420,0,300)
-frame.Position = UDim2.new(0,10,0,100)
-frame.BackgroundColor3 = Color3.fromRGB(25,25,25)
-
-local tb = Instance.new("TextBox", frame)
-tb.Size = UDim2.new(1,-10,1,-10)
-tb.Position = UDim2.new(0,5,0,5)
-tb.ClearTextOnFocus=false
-tb.MultiLine=true
-tb.TextWrapped=true
-tb.TextColor3=Color3.fromRGB(0,255,0)
-tb.Font = Enum.Font.Code
-tb.Text = "[RemoteLister] Scanning...\n"
-
-local function listFolder(folder)
-    for _,v in ipairs(folder:GetDescendants()) do
-        if v:IsA("RemoteEvent") or v:IsA("RemoteFunction") then
-            tb.Text = tb.Text .. tostring(v:GetFullName()) .. " (" .. v.ClassName .. ")\n"
-        end
-    end
-end
-
-listFolder(ReplicatedStorage)
-listFolder(Workspace)
-tb.Text = tb.Text .. "\n[Done] Copy remote names and paste here."
+local Remote = game.ReplicatedStorage.Event
+Remote.OnClientEvent:Connect(function(...)
+    print("[Event Remote Fired]:", ...)
+end)
