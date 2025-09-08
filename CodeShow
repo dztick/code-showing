@@ -1,44 +1,19 @@
--- RemoteSpy GUI versi ringan
-local ScreenGui = Instance.new("ScreenGui")
-local Frame = Instance.new("Frame")
-local TextBox = Instance.new("TextBox")
-
-ScreenGui.Parent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
-ScreenGui.ResetOnSpawn = false
-
-Frame.Parent = ScreenGui
-Frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-Frame.Size = UDim2.new(0, 400, 0, 200)
-Frame.Position = UDim2.new(0, 20, 0, 300)
-
-TextBox.Parent = Frame
-TextBox.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-TextBox.Size = UDim2.new(1, 0, 1, 0)
-TextBox.TextColor3 = Color3.fromRGB(0, 255, 0)
-TextBox.TextSize = 14
-TextBox.ClearTextOnFocus = false
-TextBox.MultiLine = true
-TextBox.TextWrapped = true
-TextBox.TextXAlignment = Enum.TextXAlignment.Left
-TextBox.TextYAlignment = Enum.TextYAlignment.Top
-TextBox.Text = "[RemoteSpy Started]\n"
-
--- Hook remotes
-local mt = getrawmetatable(game)
-local old = mt.__namecall
-setreadonly(mt, false)
-
-mt.__namecall = newcclosure(function(self, ...)
-    local args = {...}
-    local method = getnamecallmethod()
-    if method == "FireServer" or method == "InvokeServer" then
-        local log = "Remote: " .. self:GetFullName() .. " | Args: "
-        for i,v in ipairs(args) do
-            pcall(function() log = log .. tostring(v) .. " ; " end)
-        end
-        TextBox.Text = TextBox.Text .. log .. "\n"
-    end
-    return old(self, ...)
-end)
-
-setreadonly(mt, true)
+-- Tes capability Solara
+local ok = {}
+ok.getrawmetatable = (type(getrawmetatable) == "function")
+ok.newcclosure = (type(newcclosure) == "function")
+ok.setreadonly = (type(setreadonly) == "function")
+ok.hookmetamethod = (type(hookmetamethod) == "function") -- alternatif hook
+local t = "Capabilities:\n"
+for k,v in pairs(ok) do t = t..string.format("%s = %s\n", k, tostring(v)) end
+-- tampil di screen karena Solara kadang tanpa console
+local p = Instance.new("ScreenGui", game.Players.LocalPlayer:WaitForChild("PlayerGui"))
+p.ResetOnSpawn = false
+local l = Instance.new("TextLabel", p)
+l.Size = UDim2.new(0,400,0,100)
+l.Position = UDim2.new(0,0,0,50)
+l.TextScaled = false
+l.TextWrapped = true
+l.Text = t
+task.delay(6, function() p:Destroy() end)
+print(t)
