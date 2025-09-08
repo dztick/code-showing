@@ -1,33 +1,69 @@
--- Universal Remote Logger untuk Solara
--- akan log semua FireServer / InvokeServer
+-- Universal Remote Logger (GUI version for Solara)
+-- Akan tampilkan semua FireServer & InvokeServer + argumen di layar
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
+local pg = LocalPlayer:WaitForChild("PlayerGui")
 
-local function safeName(obj)
-    return obj:GetFullName()
+-- Buat GUI
+local screen = Instance.new("ScreenGui", pg); screen.ResetOnSpawn = false
+local frame = Instance.new("Frame", screen)
+frame.Size = UDim2.new(0,480,0,260)
+frame.Position = UDim2.new(0,10,0,200)
+frame.BackgroundColor3 = Color3.fromRGB(20,20,20)
+frame.BorderSizePixel = 0
+
+local scroll = Instance.new("ScrollingFrame", frame)
+scroll.Size = UDim2.new(1,0,1,0)
+scroll.CanvasSize = UDim2.new(0,0,5,0)
+scroll.BackgroundTransparency = 1
+scroll.ScrollBarThickness = 6
+
+local tb = Instance.new("TextLabel", scroll)
+tb.Size = UDim2.new(1,-10,0,20)
+tb.Position = UDim2.new(0,5,0,0)
+tb.BackgroundTransparency = 1
+tb.TextXAlignment = Enum.TextXAlignment.Left
+tb.TextYAlignment = Enum.TextYAlignment.Top
+tb.TextColor3 = Color3.fromRGB(0,255,0)
+tb.Font = Enum.Font.Code
+tb.TextSize = 14
+tb.Text = "[Logger] Waiting for activity...\n"
+
+-- Fungsi untuk nambah teks
+local function addLine(txt)
+    tb.Text = tb.Text .. txt .. "\n"
+    tb.Size = UDim2.new(1,-10,0,tb.TextBounds.Y + 20)
+    scroll.CanvasSize = UDim2.new(0,0,0,tb.TextBounds.Y + 20)
 end
 
--- Hook FireServer
+-- Safe name
+local function safeName(obj)
+    local s
+    pcall(function() s = obj:GetFullName() end)
+    return s or tostring(obj)
+end
+
+-- Hook FireServer & InvokeServer
 for _,v in ipairs(getgc(true)) do
     if typeof(v) == "function" and islclosure(v) then
         local info = debug.getinfo(v)
         if info and info.name == "FireServer" then
             hookfunction(v, function(self, ...)
-                print("[FireServer] Remote:", safeName(self))
+                addLine("[FireServer] " .. safeName(self))
                 local args = {...}
                 for i,a in ipairs(args) do
-                    print("   Arg", i, "=", a)
+                    addLine("   Arg"..i.." = "..tostring(a))
                 end
                 return v(self, ...)
             end)
         end
         if info and info.name == "InvokeServer" then
             hookfunction(v, function(self, ...)
-                print("[InvokeServer] Remote:", safeName(self))
+                addLine("[InvokeServer] " .. safeName(self))
                 local args = {...}
                 for i,a in ipairs(args) do
-                    print("   Arg", i, "=", a)
+                    addLine("   Arg"..i.." = "..tostring(a))
                 end
                 return v(self, ...)
             end)
@@ -35,4 +71,4 @@ for _,v in ipairs(getgc(true)) do
     end
 end
 
-print("[Logger] Started. Lakukan dash/M1 untuk lihat argumen di console (F9).")
+addLine("[Logger] Started. Lakukan Dash/M1 untuk lihat remote + argumen.")
