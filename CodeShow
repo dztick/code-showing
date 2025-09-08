@@ -1,141 +1,47 @@
--- Remote Probe (Solara-friendly GUI)
--- WARNING: This WILL call FireServer/InvokeServer on remotes. Use alt account.
+-- [M1 Remote Logger]
+-- Jalankan script ini, lalu klik M1 (attack biasa).
+-- Akan muncul log di layar.
 
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Workspace = game:GetService("Workspace")
-local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+local pg = LocalPlayer:WaitForChild("PlayerGui")
 
-local player = Players.LocalPlayer
-local char = player.Character or player.CharacterAdded:Wait()
-local root = char:WaitForChild("HumanoidRootPart")
-local humanoid = char:FindFirstChild("Humanoid")
-
--- UI
-local pg = player:WaitForChild("PlayerGui")
+-- GUI
 local screen = Instance.new("ScreenGui", pg); screen.ResetOnSpawn = false
 local frame = Instance.new("Frame", screen)
-frame.Size = UDim2.new(0,620,0,360); frame.Position = UDim2.new(0,10,0,80)
-frame.BackgroundColor3 = Color3.fromRGB(22,22,22)
-frame.BorderSizePixel = 0
+frame.Size = UDim2.new(0,520,0,300)
+frame.Position = UDim2.new(0,10,0,80)
+frame.BackgroundColor3 = Color3.fromRGB(25,25,25)
 
-local title = Instance.new("TextLabel", frame)
-title.Size = UDim2.new(1,0,0,26); title.Position = UDim2.new(0,0,0,0)
-title.BackgroundTransparency = 1
-title.Text = "[RemoteProbe] scanning remotes..."
-title.TextColor3 = Color3.fromRGB(0,255,128)
-title.Font = Enum.Font.Code; title.TextSize = 16
-
-local logScroll = Instance.new("ScrollingFrame", frame)
-logScroll.Size = UDim2.new(1,-10,1,-36); logScroll.Position = UDim2.new(0,5,0,30)
-logScroll.BackgroundTransparency = 1
-logScroll.ScrollBarThickness = 8
-
-local logLabel = Instance.new("TextLabel", logScroll)
-logLabel.Size = UDim2.new(1,-10,0,20)
-logLabel.Position = UDim2.new(0,5,0,5)
-logLabel.BackgroundTransparency = 1
-logLabel.TextXAlignment = Enum.TextXAlignment.Left
-logLabel.TextYAlignment = Enum.TextYAlignment.Top
-logLabel.Font = Enum.Font.Code
-logLabel.TextColor3 = Color3.fromRGB(0,255,0)
-logLabel.TextSize = 14
-logLabel.Text = "[RemoteProbe] Starting...\n"
+local tb = Instance.new("TextLabel", frame)
+tb.Size = UDim2.new(1,-10,1,-10)
+tb.Position = UDim2.new(0,5,0,5)
+tb.BackgroundTransparency = 1
+tb.TextXAlignment = Enum.TextXAlignment.Left
+tb.TextYAlignment = Enum.TextYAlignment.Top
+tb.Font = Enum.Font.Code
+tb.TextColor3 = Color3.fromRGB(0,255,0)
+tb.TextSize = 14
+tb.Text = "[M1 Logger] Klik kiri untuk serangan...\n"
 
 local function addLog(s)
-    logLabel.Text = logLabel.Text .. s .. "\n"
-    -- expand label to fit
-    local y = math.max(20, logLabel.TextBounds.Y + 10)
-    logLabel.Size = UDim2.new(1,-10,0,y)
-    logScroll.CanvasSize = UDim2.new(0,0,y + 20)
+    tb.Text = tb.Text .. s .. "\n"
 end
 
--- gather remotes from ReplicatedStorage and Workspace
-local function gatherRemotes()
-    local out = {}
-    local function scan(parent)
-        for _,v in ipairs(parent:GetDescendants()) do
-            if v:IsA("RemoteEvent") or v:IsA("RemoteFunction") then
-                table.insert(out, v)
+-- Hook semua RemoteFunction & RemoteEvent
+for _,r in ipairs(game:GetDescendants()) do
+    if r:IsA("RemoteEvent") or r:IsA("RemoteFunction") then
+        if not r:GetFullName():lower():find("chat") then -- biar ga spam chat
+            r.OnClientEvent:Connect(function(...)
+                addLog("[RemoteEvent] " .. r:GetFullName() .. " | " .. table.concat({...}, ", "))
+            end)
+            if r:IsA("RemoteFunction") then
+                r.OnClientInvoke = function(...)
+                    addLog("[RemoteFunction] " .. r:GetFullName() .. " | " .. table.concat({...}, ", "))
+                end
             end
         end
     end
-    pcall(function() scan(ReplicatedStorage) end)
-    pcall(function() scan(Workspace) end)
-    return out
 end
 
--- common arg patterns to test (focused on dash-style calls)
-local argPatterns = {
-    {"Dash"},
-    {"Dash", Vector3.new(0,1,0)},
-    {"Dash", Vector3.new(0,1,0), 0.25},
-    {"Dash", Vector3.new(1,0,0), 0.25},
-    {"Dash", Vector3.new(0,0,0), 1},
-    -- fallback simple patterns (harmless-looking strings/numbers)
-    {"test"},
-    {123},
-    {"M1"},
-}
-
--- utility to safely call and detect movement
-local function tryCall(remote, isFunction, args)
-    local moved = false
-    local success, ret, err = false, nil, nil
-    -- capture pos and velocity before
-    local prePos = root.Position
-    local preVel = root.Velocity
-    local ok, res = pcall(function()
-        if isFunction then
-            return remote:InvokeServer(table.unpack(args))
-        else
-            remote:FireServer(table.unpack(args))
-            return nil
-        end
-    end)
-    success = ok
-    if not ok then err = res end
-    -- wait a short moment to let server affect you
-    wait(0.18)
-    local postPos = root.Position
-    local postVel = root.Velocity
-    local dist = (postPos - prePos).Magnitude
-    if dist > 1 or (postVel - preVel).Magnitude > 1 then
-        moved = true
-    end
-    return success, moved, err, res
-end
-
--- Run probe (will try multiple args per remote)
-addLog("[RemoteProbe] Collecting remotes...")
-local remotes = gatherRemotes()
-addLog(string.format("[RemoteProbe] Found %d remotes", #remotes))
-addLog("Tip: stand still while probe runs, use alt account to reduce risk.")
-
-for i,remote in ipairs(remotes) do
-    local kind = remote.ClassName
-    addLog(("--- Remote %d/%d: %s (%s)"):format(i, #remotes, remote:GetFullName(), kind))
-    for j,pattern in ipairs(argPatterns) do
-        -- copy pattern to avoid mutation
-        local args = {}
-        for _,v in ipairs(pattern) do table.insert(args, v) end
-        -- if arg is player name token like "PLAYER", replace with your player
-        for k,v in ipairs(args) do
-            if type(v) == "string" and v:lower() == "player_self" then
-                args[k] = player -- replacement example
-            end
-        end
-        local isFunction = remote:IsA("RemoteFunction")
-        local ok, moved, err, ret = tryCall(remote, isFunction, args)
-        if ok then
-            addLog(("  [TRY] args #%d OK | moved=%s | ret=%s"):format(j, tostring(moved), tostring(ret)))
-        else
-            addLog(("  [TRY] args #%d ERROR -> %s"):format(j, tostring(err)))
-        end
-        -- small pause to not spam server too fast
-        task.wait(0.12)
-    end
-end
-
-addLog("[RemoteProbe] Done. Look for lines with 'moved=true' — these remotes likely trigger dash/movement.")
-addLog("[RemoteProbe] Copy interesting remote:GetFullName() and paste to me.")
+addLog("[M1 Logger] Aktif. Klik M1, lihat nama remote + argumen yang keluar.")
